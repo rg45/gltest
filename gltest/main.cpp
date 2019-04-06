@@ -5,6 +5,7 @@
 void display()
 {
    glClear(GL_COLOR_BUFFER_BIT);
+   glRotated(15, 1, 1, 0);
    glutWireTorus(0.25, 0.50, 32, 32);
    glutSwapBuffers();
 }
