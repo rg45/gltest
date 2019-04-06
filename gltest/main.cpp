@@ -5,9 +5,27 @@
 void display()
 {
    glClear(GL_COLOR_BUFFER_BIT);
-   glRotated(15, 1, 1, 0);
+   glRotated(3, 1, 1, 0);
    glutWireTorus(0.25, 0.50, 32, 32);
    glutSwapBuffers();
+}
+
+void onKeyPressed(unsigned char key, int, int)
+{
+   switch (key)
+   {
+   case 'f':
+      glutFullScreen();
+      break;
+
+   case 's':
+      glutReshapeWindow(800, 800);
+      break;
+
+   case VK_ESCAPE:
+      glutDestroyWindow(glutGetWindow());
+      break;
+   }
 }
 
 int main(int argc, char** args)
@@ -21,6 +39,7 @@ int main(int argc, char** args)
 
    glClearColor(0.1f, 0.1f, 0.3f, 0.0f);
    glutDisplayFunc(display);
+   glutKeyboardFunc(onKeyPressed);
    glutMainLoop();
 }
 
