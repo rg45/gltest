@@ -1,12 +1,27 @@
 #include "stdafx.h"
+#include <functional>
 
 #include "GL/glut.h"
+
+class AtExit
+{
+public:
+
+   using Handler = std::function<void()>;
+
+   explicit AtExit(Handler&& handler) : m_handler(std::move(handler)) {}
+
+   ~AtExit() { m_handler(); }
+
+private:
+   Handler m_handler;
+};
 
 void display()
 {
    glClear(GL_COLOR_BUFFER_BIT);
    glRotated(3, 1, 1, 0);
-   glutWireTorus(0.25, 0.50, 32, 32);
+   glutWireTeapot(0.75);
    glutSwapBuffers();
 }
 
@@ -35,11 +50,27 @@ int main(int argc, char** args)
    glutInit(&argc, args);
    glutInitWindowSize(800, 800);
    glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
-   glutCreateWindow("Hello, OpenGL!");
+   const int window = glutCreateWindow("Hello, OpenGL!");
+
+   //const AtExit atExit([window]{glutDestroyWindow(window);});
 
    glClearColor(0.1f, 0.1f, 0.3f, 0.0f);
    glutDisplayFunc(display);
    glutKeyboardFunc(onKeyPressed);
-   glutMainLoop();
+   display();
+
+   //glutMainLoop();
+
+   while (glutGetWindow())
+   {
+      MSG msg {};
+      while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE))
+      {
+         TranslateMessage(&msg);
+         DispatchMessage(&msg);
+      }
+      Sleep(1);
+   }
+   std::cout << "Bye-Bye!" << std::endl;
 }
 
