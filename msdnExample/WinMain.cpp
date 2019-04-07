@@ -23,7 +23,7 @@ HGLRC ghRC;
 #define WIDTH           800 
 #define HEIGHT          600 
 
-LONG WINAPI MainWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT WINAPI MainWndProc(HWND, UINT, WPARAM, LPARAM);
 BOOL bSetupPixelFormat(HDC);
 
 /* OpenGL globals, defines, and prototypes */
@@ -82,9 +82,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
    UpdateWindow(ghWnd);
 
    /* animation loop */
-   auto t0 = GetTickCount();
-   for (;;)
+   for (auto t0 = GetTickCount(); t0;)
    {
+      auto t1 = GetTickCount();
+      drawScene(GLdouble(t1 - t0) / 1000);
+      t0 = t1;
+      Sleep(1);
+
       while (PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE))
       {
          if (GetMessage(&msg, NULL, 0, 0))
@@ -92,28 +96,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             TranslateMessage(&msg);
             DispatchMessage(&msg);
          }
-         else {
-            return TRUE;
+         else
+         {
+            t0 = 0;
+            break;
          }
       }
-      auto t1 = GetTickCount();
-      drawScene(GLdouble(t1 - t0)/1000);
-      t0 = t1;
-      Sleep(1);
    }
+   return {};
 }
 
 /* main window procedure */
-LONG WINAPI MainWndProc(
-   HWND    hWnd,
-   UINT    uMsg,
-   WPARAM  wParam,
-   LPARAM  lParam)
+LRESULT WINAPI MainWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-   LONG    lRet = 1;
    PAINTSTRUCT    ps;
    RECT rect;
-
    switch (uMsg) {
 
    case WM_CREATE:
@@ -174,11 +171,9 @@ LONG WINAPI MainWndProc(
       }
 
    default:
-      lRet = LONG(DefWindowProc(hWnd, uMsg, wParam, lParam));
-      break;
+      return DefWindowProc(hWnd, uMsg, wParam, lParam);
    }
-
-   return lRet;
+   return true;
 }
 
 BOOL bSetupPixelFormat(HDC hdc)
@@ -301,6 +296,7 @@ void polarView(GLdouble radius, GLdouble twist, GLdouble latitude,
 GLvoid drawScene(GLdouble dt)
 {
    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+   glClearColor(0.1f, 0.1f, 0.3f, 0);
 
    glPushMatrix();
 
