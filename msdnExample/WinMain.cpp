@@ -1,5 +1,6 @@
 #include "stdafx.h"
 
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -63,16 +64,8 @@ GLvoid resize(GLsizei width, GLsizei height)
    glViewport(0, 0, width, height);
    glMatrixMode(GL_PROJECTION);
    glLoadIdentity();
-   gluPerspective(45.0, GLfloat(width) / height, 3.0, 7.0);
+   gluPerspective(45.0, GLfloat(width) / height, 1.0, 100.0);
    glMatrixMode(GL_MODELVIEW);
-}
-
-void polarView(GLdouble radius, GLdouble twist, GLdouble latitude, GLdouble longitude)
-{
-   glTranslated(0.0, 0.0, -radius);
-   glRotated(-twist, 0.0, 0.0, 1.0);
-   glRotated(-latitude, 1.0, 0.0, 0.0);
-   glRotated(longitude, 0.0, 0.0, 1.0);
 }
 
 class IGLObject
@@ -138,6 +131,10 @@ public:
          bSetupPixelFormat(m_hdc);
          m_hrc = wglCreateContext(m_hdc);
          wglMakeCurrent(m_hdc, m_hrc);
+         glEnable(GL_BLEND);
+         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+         glEnable(GL_DEPTH_TEST);
+         glClearColor(0.1f, 0.1f, 0.3f, 1);
 
          for (auto&& glObject : glObjects)
             AddGLObject(glObject);
@@ -157,19 +154,20 @@ public:
       m_glObjects[glObject->GetID()] = {glObject->GetVersion(), glObject};
    }
 
-   GLvoid Draw(GLdouble dt)
+   GLvoid Draw(double dt)
    {
-      m_latitude = fmod(m_latitude + m_latinc * dt, 360);
+      //m_latitude = fmod(m_latitude + m_latinc * dt, 360);
+      //m_latitude = 30;
       m_longitude = fmod(m_longitude + m_longinc * dt, 360);
+      m_longinc *= std::exp(-dt);
 
       wglMakeCurrent(m_hdc, m_hrc);
-      glMatrixMode(GL_MODELVIEW);
-      glPushMatrix();
-      polarView(m_radius, 0, m_latitude, m_longitude);
-      glEnable(GL_BLEND);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      glClearColor(0.1f, 0.1f, 0.3f, 1);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      glMatrixMode(GL_MODELVIEW);
+      glLoadIdentity();
+      glTranslated(0.0, 0.0, -m_radius);
+      glRotated(m_latitude, 1.0, 0.0, 0.0);
+      glRotated(m_longitude, 0.0, 1.0, 0.0);
 
       for (auto&& [id, pair] : m_glObjects)
       {
@@ -188,7 +186,6 @@ public:
             m_glObjects.erase(id);
          }
       }
-      glPopMatrix();
       SwapBuffers(m_hdc);
    }
 
@@ -243,7 +240,10 @@ private:
 
    static LRESULT WINAPI WndProc_(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
    {
-      std::cout << std::hex << ", " << uMsg;
+      if (uMsg != 0x84)
+      {
+         std::cout << std::hex << ", " << uMsg;
+      }
       GLTestWindow* const wnd = reinterpret_cast<GLTestWindow*>(GetWindowLongPtr(hWnd, GWLP_USERDATA));
       const auto res = wnd->WndProc(uMsg, wParam, lParam);
 
@@ -280,6 +280,25 @@ private:
          }
          break;
 
+      case WM_LBUTTONDOWN:
+      case WM_MOUSEMOVE:
+         {
+            const int dragX = short(LOWORD(lParam));
+            const int dragY = short(HIWORD(lParam));
+            if (wParam & MK_LBUTTON)
+            {
+               m_longinc = (std::min)(500.0, (std::max)(-500.0, double(dragX - m_dragX) * 10));
+               m_latitude = (std::min)(80.0, (std::max)(-80.0, m_latitude + double(dragY - m_dragY) / 5));
+            }
+            m_dragX = dragX;
+            m_dragY = dragY;
+         }
+         break;
+
+      case WM_MOUSEWHEEL:
+         m_radius = (std::min)(30.0, (std::max)(3.0, m_radius - GET_WHEEL_DELTA_WPARAM(wParam) / double(WHEEL_DELTA)));
+         break;
+
       case WM_KEYDOWN:
          switch (wParam)
          {
@@ -287,16 +306,16 @@ private:
             DestroyWindow(m_hwnd);
             break;
          case VK_LEFT:
-            m_longinc += 0.5;
+            m_longinc += 5.0;
             break;
          case VK_RIGHT:
-            m_longinc -= 0.5;
+            m_longinc -= 5.0;
             break;
          case VK_UP:
-            m_latinc += 0.5;
+            m_latitude = (std::min)(80.0, (std::max)(-80.0, m_latitude - 1));
             break;
          case VK_DOWN:
-            m_latinc -= 0.5;
+            m_latitude = (std::min)(80.0, (std::max)(-80.0, m_latitude + 1));
             break;
          }
          break;
@@ -318,6 +337,8 @@ private:
    GLdouble m_latinc = 6.0;
    GLdouble m_longinc = 2.5;
    std::map<GLuint, std::pair<size_t, std::weak_ptr<IGLObject>>> m_glObjects;
+   int m_dragX = 0;
+   int m_dragY = 0;
 };
 
 GLTestWindow::WndClass GLTestWindow::m_wndClass;
@@ -330,14 +351,7 @@ int main()
    std::shared_ptr<IGLObject> glObjects[]{
       std::make_shared<GLDisplayList>([] {
          QuadricPtr quadric(gluNewQuadric());
-         glColor4d(1, 0, 0, 1);
-         gluQuadricDrawStyle(quadric.get(), GLU_FILL);
-         gluQuadricNormals(quadric.get(), GLU_SMOOTH);
-         gluCylinder(quadric.get(), 0.3, 0.1, 0.6, 24, 1);
-      }),
-      std::make_shared<GLDisplayList>([] {
-         QuadricPtr quadric(gluNewQuadric());
-         glColor4d(0, 1, 0, 0.7);
+         glColor4d(0, 1, 0, 1);
          gluQuadricDrawStyle(quadric.get(), GLU_FILL);
          gluQuadricNormals(quadric.get(), GLU_SMOOTH);
          glPushMatrix();
@@ -348,10 +362,20 @@ int main()
       }),
       std::make_shared<GLDisplayList>([] {
          QuadricPtr quadric(gluNewQuadric());
-         glColor4d(0, 0, 1, 0.5);
+         glColor4d(1, 0, 0, 1);
+         gluQuadricDrawStyle(quadric.get(), GLU_FILL);
+         gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+         gluCylinder(quadric.get(), 0.3, 0.1, 0.6, 24, 1);
+      }),
+      std::make_shared<GLDisplayList>([] {
+         QuadricPtr quadric(gluNewQuadric());
+         glColor4d(0, 0, 1, 1);
          gluQuadricDrawStyle(quadric.get(), GLU_LINE);
          gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+         glPushMatrix();
+         glRotated(90.0, 1, 0, 0);
          gluSphere(quadric.get(), 1.5, 32, 32);
+         glPopMatrix();
       })
    };
 
