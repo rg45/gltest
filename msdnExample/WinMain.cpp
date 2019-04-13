@@ -1,185 +1,25 @@
 #include "stdafx.h"
 
-/*
-* Example of a Windows OpenGL program.
-* The OpenGL code is the same as that used in
-* the X Window System sample
-*/
+#include <iostream>
+#include <set>
+#include <string>
+#include <typeinfo>
+#include <type_traits>
+
 #include <windows.h> 
+#include <winuser.h> 
 #include <GL/gl.h> 
 #include <GL/glu.h> 
 
-/* Windows globals, defines, and prototypes */
-CHAR szAppName[] = "Win OpenGL";
-HWND  ghWnd;
-HDC   ghDC;
-HGLRC ghRC;
 
-#define SWAPBUFFERS SwapBuffers(ghDC) 
-#define BLACK_INDEX     0 
-#define RED_INDEX       13 
-#define GREEN_INDEX     14 
-#define BLUE_INDEX      16 
-#define WIDTH           800 
-#define HEIGHT          600 
 
-LRESULT WINAPI MainWndProc(HWND, UINT, WPARAM, LPARAM);
-BOOL bSetupPixelFormat(HDC);
-
-/* OpenGL globals, defines, and prototypes */
-GLdouble latitude, longitude, latinc, longinc;
-GLdouble radius;
-
-#define GLOBE    1 
-#define CYLINDER 2 
-#define CONE     3 
-
-GLvoid resize(GLsizei, GLsizei);
-GLvoid initializeGL(GLsizei, GLsizei);
-GLvoid drawScene(GLdouble);
-void polarView(GLdouble, GLdouble, GLdouble, GLdouble);
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+namespace
 {
-   MSG        msg;
-   WNDCLASS   wndclass;
-
-   /* Register the frame class */
-   wndclass.style = 0;
-   wndclass.lpfnWndProc = (WNDPROC)MainWndProc;
-   wndclass.cbClsExtra = 0;
-   wndclass.cbWndExtra = 0;
-   wndclass.hInstance = hInstance;
-   wndclass.hIcon = LoadIcon(hInstance, szAppName);
-   wndclass.hCursor = LoadCursor(NULL, IDC_ARROW);
-   wndclass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-   wndclass.lpszMenuName = szAppName;
-   wndclass.lpszClassName = szAppName;
-
-   if (!RegisterClass(&wndclass))
-      return FALSE;
-
-   /* Create the frame */
-   ghWnd = CreateWindow(szAppName,
-      "Generic OpenGL Sample",
-      WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
-      CW_USEDEFAULT,
-      CW_USEDEFAULT,
-      WIDTH,
-      HEIGHT,
-      NULL,
-      NULL,
-      hInstance,
-      NULL);
-
-   /* make sure window was created */
-   if (!ghWnd)
-      return FALSE;
-
-   /* show and update main window */
-   ShowWindow(ghWnd, nCmdShow);
-
-   UpdateWindow(ghWnd);
-
-   /* animation loop */
-   for (auto t0 = GetTickCount(); t0;)
-   {
-      auto t1 = GetTickCount();
-      drawScene(GLdouble(t1 - t0) / 1000);
-      t0 = t1;
-      Sleep(1);
-
-      while (PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE))
-      {
-         if (GetMessage(&msg, NULL, 0, 0))
-         {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-         }
-         else
-         {
-            t0 = 0;
-            break;
-         }
-      }
-   }
-   return {};
-}
-
-/* main window procedure */
-LRESULT WINAPI MainWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-   PAINTSTRUCT    ps;
-   RECT rect;
-   switch (uMsg) {
-
-   case WM_CREATE:
-      ghDC = GetDC(hWnd);
-      if (!bSetupPixelFormat(ghDC))
-         PostQuitMessage(0);
-
-      ghRC = wglCreateContext(ghDC);
-      wglMakeCurrent(ghDC, ghRC);
-      GetClientRect(hWnd, &rect);
-      initializeGL(rect.right, rect.bottom);
-      break;
-
-   case WM_PAINT:
-      BeginPaint(hWnd, &ps);
-      EndPaint(hWnd, &ps);
-      break;
-
-   case WM_SIZE:
-      GetClientRect(hWnd, &rect);
-      resize(rect.right, rect.bottom);
-      break;
-
-   case WM_CLOSE:
-      if (ghRC)
-         wglDeleteContext(ghRC);
-      if (ghDC)
-         ReleaseDC(hWnd, ghDC);
-      ghRC = 0;
-      ghDC = 0;
-
-      DestroyWindow(hWnd);
-      break;
-
-   case WM_DESTROY:
-      if (ghRC)
-         wglDeleteContext(ghRC);
-      if (ghDC)
-         ReleaseDC(hWnd, ghDC);
-
-      PostQuitMessage(0);
-      break;
-
-   case WM_KEYDOWN:
-      switch (wParam) {
-      case VK_LEFT:
-         longinc += 0.5F;
-         break;
-      case VK_RIGHT:
-         longinc -= 0.5F;
-         break;
-      case VK_UP:
-         latinc += 0.5F;
-         break;
-      case VK_DOWN:
-         latinc -= 0.5F;
-         break;
-      }
-
-   default:
-      return DefWindowProc(hWnd, uMsg, wParam, lParam);
-   }
-   return true;
-}
 
 BOOL bSetupPixelFormat(HDC hdc)
 {
-   PIXELFORMATDESCRIPTOR pfd, *ppfd;
-   int pixelformat;
+   PIXELFORMATDESCRIPTOR pfd{}, *ppfd {};
+   int pixelformat{};
 
    ppfd = &pfd;
 
@@ -187,138 +27,317 @@ BOOL bSetupPixelFormat(HDC hdc)
    ppfd->nVersion = 1;
    ppfd->dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
    ppfd->dwLayerMask = PFD_MAIN_PLANE;
-   ppfd->iPixelType = PFD_TYPE_COLORINDEX;
-   ppfd->cColorBits = 8;
+   ppfd->iPixelType = PFD_TYPE_RGBA;
+   ppfd->cColorBits = 24;
+   ppfd->cAlphaBits = 8;
    ppfd->cDepthBits = 16;
    ppfd->cAccumBits = 0;
    ppfd->cStencilBits = 0;
 
-   pixelformat = ChoosePixelFormat(hdc, ppfd);
-
    if ((pixelformat = ChoosePixelFormat(hdc, ppfd)) == 0)
    {
-      MessageBox(NULL, "ChoosePixelFormat failed", "Error", MB_OK);
+      MessageBox(nullptr, "ChoosePixelFormat failed", "Error", MB_OK);
       return FALSE;
    }
 
    if (SetPixelFormat(hdc, pixelformat, ppfd) == FALSE)
    {
-      MessageBox(NULL, "SetPixelFormat failed", "Error", MB_OK);
+      MessageBox(nullptr, "SetPixelFormat failed", "Error", MB_OK);
       return FALSE;
    }
-
    return TRUE;
 }
 
-/* OpenGL code */
-
-GLvoid resize(GLsizei width, GLsizei height)
+struct QuadricDeleter { void operator()(GLUquadricObj* obj) { /*gluDeleteQuadric(obj)*/; } };
+using QuadricPtr = std::unique_ptr<GLUquadricObj, QuadricDeleter>;
+struct GLList
 {
-   GLfloat aspect;
+   explicit GLList(GLuint id, GLenum mode) { glNewList(id, mode); }
+   ~GLList() { glEndList(); }
+};
 
-   glViewport(0, 0, width, height);
-
-   aspect = (GLfloat)width / height;
-
-   glMatrixMode(GL_PROJECTION);
-   glLoadIdentity();
-   gluPerspective(45.0, aspect, 3.0, 7.0);
-   glMatrixMode(GL_MODELVIEW);
-}
+constexpr auto GLOBE = 10;
+constexpr auto CYLINDER = 20;
+constexpr auto CONE = 30;
 
 GLvoid createObjects()
 {
-   GLUquadricObj *quadObj;
-
-   glNewList(GLOBE, GL_COMPILE);
-   quadObj = gluNewQuadric();
-   gluQuadricDrawStyle(quadObj, GLU_LINE);
-   gluSphere(quadObj, 1.5, 16, 16);
-   glEndList();
-
-   glNewList(CONE, GL_COMPILE);
-   quadObj = gluNewQuadric();
-   gluQuadricDrawStyle(quadObj, GLU_FILL);
-   gluQuadricNormals(quadObj, GLU_SMOOTH);
-   gluCylinder(quadObj, 0.3, 0.0, 0.6, 15, 10);
-   glEndList();
-
-   glNewList(CYLINDER, GL_COMPILE);
-   glPushMatrix();
-   glRotatef((GLfloat)90.0, (GLfloat)1.0, (GLfloat)0.0, (GLfloat)0.0);
-   glTranslatef((GLfloat)0.0, (GLfloat)0.0, (GLfloat)-1.0);
-   quadObj = gluNewQuadric();
-   gluQuadricDrawStyle(quadObj, GLU_FILL);
-   gluQuadricNormals(quadObj, GLU_SMOOTH);
-   gluCylinder(quadObj, 0.3, 0.3, 0.6, 12, 2);
-   glPopMatrix();
-   glEndList();
+   {
+      GLList list(CONE, GL_COMPILE);
+      QuadricPtr quadric(gluNewQuadric());
+      glColor4d(1, 0, 0, 1);
+      gluQuadricDrawStyle(quadric.get(), GLU_FILL);
+      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+      gluCylinder(quadric.get(), 0.3, 0.1, 0.6, 24, 1);
+   }
+   {
+      GLList list(CYLINDER, GL_COMPILE);
+      QuadricPtr quadric(gluNewQuadric());
+      glColor4d(0, 1, 0, 0.7);
+      gluQuadricDrawStyle(quadric.get(), GLU_FILL);
+      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+      glPushMatrix();
+      glRotated(90.0, 1, 0, 0.7);
+      glTranslated(1, 0, 0);
+      gluCylinder(quadric.get(), 0.3, 0.3, 0.6, 24, 1);
+      glPopMatrix();
+   }
+   {
+      GLList list(GLOBE, GL_COMPILE);
+      QuadricPtr quadric(gluNewQuadric());
+      glColor4d(0, 0, 1, 0.5);
+      gluQuadricDrawStyle(quadric.get(), GLU_LINE);
+      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+      gluSphere(quadric.get(), 1.5, 32, 32);
+   }
 }
 
-GLvoid initializeGL(GLsizei width, GLsizei height)
+void drawScene()
 {
-   GLfloat     maxObjectSize, aspect;
-   GLdouble    near_plane, far_plane;
-
-   glClearIndex((GLfloat)BLACK_INDEX);
-   glClearDepth(1.0);
-
-   glEnable(GL_DEPTH_TEST);
-
-   glMatrixMode(GL_PROJECTION);
-   aspect = (GLfloat)width / height;
-   gluPerspective(45.0, aspect, 3.0, 7.0);
-   glMatrixMode(GL_MODELVIEW);
-
-   near_plane = 3.0;
-   far_plane = 7.0;
-   maxObjectSize = 3.0F;
-   radius = near_plane + maxObjectSize / 2.0;
-
-   latitude = 0.0F;
-   longitude = 0.0F;
-   latinc = 6.0F;
-   longinc = 2.5F;
-
-   createObjects();
+   glCallList(CONE);
+   glCallList(CYLINDER);
+   glCallList(GLOBE);
 }
 
-void polarView(GLdouble radius, GLdouble twist, GLdouble latitude,
-   GLdouble longitude)
+GLvoid resize(GLsizei width, GLsizei height)
+{
+   glViewport(0, 0, width, height);
+   glMatrixMode(GL_PROJECTION);
+   glLoadIdentity();
+   gluPerspective(45.0, GLfloat(width) / height, 3.0, 7.0);
+   glMatrixMode(GL_MODELVIEW);
+}
+
+void polarView(GLdouble radius, GLdouble twist, GLdouble latitude, GLdouble longitude)
 {
    glTranslated(0.0, 0.0, -radius);
    glRotated(-twist, 0.0, 0.0, 1.0);
    glRotated(-latitude, 1.0, 0.0, 0.0);
    glRotated(longitude, 0.0, 0.0, 1.0);
-
 }
 
-GLvoid drawScene(GLdouble dt)
+class GLTestWindow
 {
-   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-   glClearColor(0.1f, 0.1f, 0.3f, 0);
+public:
 
-   glPushMatrix();
+   GLTestWindow()
+   {
+      CreateWindow(
+         m_wndClass.lpszClassName,
+         "Generic OpenGL Sample",
+         WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+         CW_USEDEFAULT,
+         CW_USEDEFAULT,
+         800, 600,
+         nullptr,
+         nullptr,
+         m_wndClass.hInstance,
+         this);
 
-   latitude += latinc * dt;
-   longitude += longinc * dt;
+      if (m_hwnd)
+      {
+         ShowWindow(m_hwnd, SW_SHOW);
+         UpdateWindow(m_hwnd);
+      }
+   }
 
-   polarView(radius, 0, latitude, longitude);
+   explicit operator bool() const { return m_hwnd; };
 
-   glIndexi(RED_INDEX);
-   glCallList(CONE);
+   ~GLTestWindow()
+   {
+      if (m_hwnd)
+      {
+         DestroyWindow(m_hwnd);
+      }
+   }
 
-   glIndexi(BLUE_INDEX);
-   glCallList(GLOBE);
+   GLvoid Draw(GLdouble dt)
+   {
+      m_latitude = fmod(m_latitude + m_latinc * dt, 360);
+      m_longitude = fmod(m_longitude + m_longinc * dt, 360);
 
-   glIndexi(GREEN_INDEX);
-   glPushMatrix();
-   glTranslatef(0.8F, -0.65F, 0.0F);
-   glRotatef(30.0F, 1.0F, 0.5F, 1.0F);
-   glCallList(CYLINDER);
-   glPopMatrix();
+      wglMakeCurrent(m_hdc, m_hrc);
+      glMatrixMode(GL_MODELVIEW);
+      glPushMatrix();
+      polarView(m_radius, 0, m_latitude, m_longitude);
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      glClearColor(0.1f, 0.1f, 0.3f, 1);
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      drawScene();
+      glPopMatrix();
+      SwapBuffers(m_hdc);
+   }
 
-   glPopMatrix();
+private:
 
-   SWAPBUFFERS;
+   struct WndClass : public WNDCLASS
+   {
+      WndClass() : WNDCLASS()
+      {
+         lpszClassName = typeid(*this).name();
+         hInstance = GetModuleHandle(nullptr);
+
+         style = 0;
+         lpfnWndProc = WndProcInit_;
+         cbClsExtra = 0;
+         cbWndExtra = 0;
+         hIcon = LoadIcon (hInstance, lpszClassName);
+         hCursor = LoadCursor(nullptr, IDC_ARROW);
+         hbrBackground = HBRUSH(COLOR_WINDOW + 1);
+         lpszMenuName = lpszClassName;
+         RegisterClass(this);
+      }
+      ~WndClass()
+      {
+         UnregisterClass(lpszClassName, hInstance);
+      }
+   };
+
+private:
+
+   static LRESULT WINAPI WndProcInit_(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+   {
+      if (uMsg == WM_CREATE)
+      {
+         const CREATESTRUCT* createStruct = LPCREATESTRUCT(lParam);
+         SetWindowLongPtrA(hWnd, GWLP_USERDATA, LONG_PTR(createStruct->lpCreateParams));
+         SetWindowLongPtrA(hWnd, GWLP_WNDPROC, LONG_PTR(WndProc_));
+         GLTestWindow* wnd = reinterpret_cast<GLTestWindow*>(createStruct->lpCreateParams);
+         wnd->m_hwnd = hWnd;
+         return WndProc_(hWnd, uMsg, wParam, lParam);
+      }
+      return DefWindowProc(hWnd, uMsg, wParam, lParam);
+   }
+
+   static LRESULT WINAPI WndProc_(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+   {
+      std::cout << std::hex << ", " << uMsg;
+      GLTestWindow* const wnd = reinterpret_cast<GLTestWindow*>(GetWindowLongPtr(hWnd, GWLP_USERDATA));
+      const auto res = wnd->WndProc(uMsg, wParam, lParam);
+
+      if (uMsg == WM_DESTROY)
+      {
+         wnd->m_hwnd = nullptr;
+         SetWindowLongPtr(hWnd, GWLP_WNDPROC, LONG_PTR(DefWindowProc));
+      }
+      return res;
+   }
+
+   LRESULT WndProc(UINT uMsg, WPARAM wParam, LPARAM lParam)
+   {
+      switch (uMsg)
+      {
+
+      case WM_CREATE:
+         {
+            RECT rect{};
+            GetClientRect(m_hwnd, &rect);
+            m_hdc = GetDC(m_hwnd);
+            bSetupPixelFormat(m_hdc);
+            m_hrc = wglCreateContext(m_hdc);
+            wglMakeCurrent(m_hdc, m_hrc);
+            createObjects();
+         }
+         break;
+
+      case WM_CLOSE:
+         DestroyWindow(m_hwnd);
+         break;
+
+      case WM_DESTROY:
+         if (m_hrc)
+            wglDeleteContext(m_hrc);
+
+         if (m_hdc)
+            ReleaseDC(m_hwnd, m_hdc);
+
+         break;
+
+      case WM_SIZE:
+         {
+            RECT rect{};
+            GetClientRect(m_hwnd, &rect);
+            resize(rect.right, rect.bottom);
+         }
+         break;
+
+      case WM_KEYDOWN:
+         switch (wParam)
+         {
+         case VK_ESCAPE:
+            DestroyWindow(m_hwnd);
+            break;
+         case VK_LEFT:
+            m_longinc += 0.5;
+            break;
+         case VK_RIGHT:
+            m_longinc -= 0.5;
+            break;
+         case VK_UP:
+            m_latinc += 0.5;
+            break;
+         case VK_DOWN:
+            m_latinc -= 0.5;
+            break;
+         }
+         break;
+
+      default:
+         return DefWindowProc(m_hwnd, uMsg, wParam, lParam);
+      }
+      return true;
+   }
+
+private:
+   static WndClass m_wndClass;
+   HWND m_hwnd = nullptr;
+   HDC   m_hdc = nullptr;
+   HGLRC m_hrc = nullptr;
+   GLdouble m_radius = 4.5;
+   GLdouble m_latitude = 0.0;
+   GLdouble m_longitude = 0.0;
+   GLdouble m_latinc = 6.0;
+   GLdouble m_longinc = 2.5;
+   std::set<GLuint> m_lists;
+};
+
+GLTestWindow::WndClass GLTestWindow::m_wndClass;
+
+} // namespace
+
+int main()
+{
+   GLTestWindow windows[3];
+   auto t0 = GetTickCount64();
+
+   for (;;)
+   {
+      auto t1 = GetTickCount64();
+
+      size_t wndCount = 0;
+      for (auto&& wnd : windows)
+      {
+         if (wnd)
+         {
+            wnd.Draw(GLdouble(t1 - t0) / 1000);
+            ++wndCount;
+         }
+      }
+      if (!wndCount)
+      {
+         break;
+      }
+      t0 = t1;
+      Sleep(1);
+
+      for (MSG msg{}; PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE); )
+      {
+         TranslateMessage(&msg);
+         DispatchMessage(&msg);
+      }
+   }
 }
+
+
+
