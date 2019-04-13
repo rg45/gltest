@@ -343,6 +343,61 @@ private:
 
 GLTestWindow::WndClass GLTestWindow::m_wndClass;
 
+double rand() { return std::rand() / double(RAND_MAX);  }
+
+class JumpingBall : public IGLObject
+{
+public:
+
+   size_t GetVersion() const override { return m_version; }
+
+   void Draw() override
+   {
+      QuadricPtr quadric(gluNewQuadric());
+      glColor4d(m_red, m_green, m_blue, 1);
+      gluQuadricDrawStyle(quadric.get(), GLU_LINE);
+      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+      glPushMatrix();
+      glTranslated(m_x, m_y, m_z);
+      glRotated(m_rotation, 1, 1, 1);
+      gluSphere(quadric.get(), m_radius, 16, 16);
+      glPopMatrix();
+   }
+
+   void Calc(double dt)
+   {
+      m_t = std::fmod(m_t + dt, m_vy/5);
+
+      m_y = -1.5 + m_vy * m_t - 10 * m_t * m_t / 2;
+      m_rotation = std::fmod(m_rotation + 123 * dt, 360);
+
+      m_x += m_vx * dt;
+      if (m_x < -3 && m_vx < 0 || m_x > 3 && m_vx > 0)
+         m_vx = -m_vx;
+
+      m_z += m_vz * dt;
+      if (m_z < -3 && m_vz < 0 || m_z > 3 && m_vz > 0)
+         m_vz = -m_vz;
+
+      ++m_version;
+   }
+
+private:
+   size_t m_version = 0;
+   double m_x = rand() * 4 - 2;
+   double m_y = -1;
+   double m_z = rand() * 4 - 2;
+   double m_red = rand();
+   double m_green = rand();
+   double m_blue = rand(); 
+   double m_rotation;
+   double m_vx = rand() * 2 - 1;
+   double m_vy = rand() * 4 + 4;
+   double m_vz = rand() * 2 - 1;
+   double m_t = rand() * m_vy/5;
+   double m_radius = 0.105;
+};
+
 
 } // namespace
 
@@ -376,33 +431,46 @@ int main()
          glRotated(90.0, 1, 0, 0);
          gluSphere(quadric.get(), 1.5, 32, 32);
          glPopMatrix();
-      })
+      }),
    };
 
    GLTestWindow windows[] = {
-      {glObjects[0]},
-      {glObjects[1]},
-      {glObjects[0], glObjects[1]},
-      {glObjects[2]},
-      {glObjects[0], glObjects[2]},
-      {glObjects[1], glObjects[2]},
-      {glObjects[0], glObjects[1], glObjects[2]},
-      glObjects,
-      glObjects,
+//       {glObjects[0]},
+//       {glObjects[1]},
+//       {glObjects[0], glObjects[1]},
+//       {glObjects[2]},
+//       {glObjects[0], glObjects[2]},
+//       {glObjects[1], glObjects[2]},
+//       {glObjects[0], glObjects[1], glObjects[2]},
+//       glObjects,
+//       glObjects,
       glObjects,
    };
+
+   std::vector<std::shared_ptr<JumpingBall>> balls;
+
+   for (size_t i = 0; i < 20; ++i)
+   {
+      balls.push_back(std::make_shared<JumpingBall>());
+      for (auto&& wnd : windows)
+         wnd.AddGLObject(balls.back());
+   }
 
    auto t0 = GetTickCount64();
    for (;;)
    {
       auto t1 = GetTickCount64();
+      const auto dt = double(t1 - t0) / 1000;
+
+      for (auto&& ball : balls)
+         ball->Calc(dt);
 
       size_t wndCount = 0;
       for (auto&& wnd : windows)
       {
          if (wnd)
          {
-            wnd.Draw(GLdouble(t1 - t0) / 1000);
+            wnd.Draw(dt);
             ++wndCount;
          }
       }
