@@ -1,5 +1,6 @@
 #include "stdafx.h"
 
+#include <functional>
 #include <iostream>
 #include <set>
 #include <string>
@@ -56,49 +57,6 @@ struct GLList
    ~GLList() { glEndList(); }
 };
 
-constexpr auto GLOBE = 10;
-constexpr auto CYLINDER = 20;
-constexpr auto CONE = 30;
-
-GLvoid createObjects()
-{
-   {
-      GLList list(CONE, GL_COMPILE);
-      QuadricPtr quadric(gluNewQuadric());
-      glColor4d(1, 0, 0, 1);
-      gluQuadricDrawStyle(quadric.get(), GLU_FILL);
-      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
-      gluCylinder(quadric.get(), 0.3, 0.1, 0.6, 24, 1);
-   }
-   {
-      GLList list(CYLINDER, GL_COMPILE);
-      QuadricPtr quadric(gluNewQuadric());
-      glColor4d(0, 1, 0, 0.7);
-      gluQuadricDrawStyle(quadric.get(), GLU_FILL);
-      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
-      glPushMatrix();
-      glRotated(90.0, 1, 0, 0.7);
-      glTranslated(1, 0, 0);
-      gluCylinder(quadric.get(), 0.3, 0.3, 0.6, 24, 1);
-      glPopMatrix();
-   }
-   {
-      GLList list(GLOBE, GL_COMPILE);
-      QuadricPtr quadric(gluNewQuadric());
-      glColor4d(0, 0, 1, 0.5);
-      gluQuadricDrawStyle(quadric.get(), GLU_LINE);
-      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
-      gluSphere(quadric.get(), 1.5, 32, 32);
-   }
-}
-
-void drawScene()
-{
-   glCallList(CONE);
-   glCallList(CYLINDER);
-   glCallList(GLOBE);
-}
-
 GLvoid resize(GLsizei width, GLsizei height)
 {
    glViewport(0, 0, width, height);
@@ -120,7 +78,14 @@ class GLTestWindow
 {
 public:
 
-   GLTestWindow()
+   GLTestWindow(const GLTestWindow&) = delete;
+
+   GLTestWindow(std::initializer_list<std::function<void()>> initializerLists = {})
+      : GLTestWindow(initializerLists, {}) { }
+
+   template <typename DisplayLists>
+   GLTestWindow(const DisplayLists& displayLists,
+      std::enable_if_t<std::is_same_v<std::function<void()>, typename DisplayLists::value_type>, int> = {})
    {
       CreateWindow(
          m_wndClass.lpszClassName,
@@ -128,7 +93,7 @@ public:
          WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
          CW_USEDEFAULT,
          CW_USEDEFAULT,
-         800, 600,
+         CW_USEDEFAULT, CW_USEDEFAULT,
          nullptr,
          nullptr,
          m_wndClass.hInstance,
@@ -136,6 +101,16 @@ public:
 
       if (m_hwnd)
       {
+         m_hdc = GetDC(m_hwnd);
+         bSetupPixelFormat(m_hdc);
+         m_hrc = wglCreateContext(m_hdc);
+         wglMakeCurrent(m_hdc, m_hrc);
+
+         GLuint displayListID = 0;
+         for (auto&& displayList : displayLists)
+         {
+            SetDisplayList(++displayListID, displayList);
+         }
          ShowWindow(m_hwnd, SW_SHOW);
          UpdateWindow(m_hwnd);
       }
@@ -143,12 +118,12 @@ public:
 
    explicit operator bool() const { return m_hwnd; };
 
-   ~GLTestWindow()
+   void SetDisplayList(GLuint id, const std::function<void()>& createList)
    {
-      if (m_hwnd)
-      {
-         DestroyWindow(m_hwnd);
-      }
+      wglMakeCurrent(m_hdc, m_hrc);
+      GLList list(id, GL_COMPILE);
+      createList();
+      m_displayLists.insert(id);
    }
 
    GLvoid Draw(GLdouble dt)
@@ -164,9 +139,20 @@ public:
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       glClearColor(0.1f, 0.1f, 0.3f, 1);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-      drawScene();
+
+      for (const GLuint displayList : m_displayLists)
+         glCallList(displayList);
+
       glPopMatrix();
       SwapBuffers(m_hdc);
+   }
+
+   ~GLTestWindow()
+   {
+      if (m_hwnd)
+      {
+         DestroyWindow(m_hwnd);
+      }
    }
 
 private:
@@ -228,19 +214,6 @@ private:
    {
       switch (uMsg)
       {
-
-      case WM_CREATE:
-         {
-            RECT rect{};
-            GetClientRect(m_hwnd, &rect);
-            m_hdc = GetDC(m_hwnd);
-            bSetupPixelFormat(m_hdc);
-            m_hrc = wglCreateContext(m_hdc);
-            wglMakeCurrent(m_hdc, m_hrc);
-            createObjects();
-         }
-         break;
-
       case WM_CLOSE:
          DestroyWindow(m_hwnd);
          break;
@@ -299,18 +272,58 @@ private:
    GLdouble m_longitude = 0.0;
    GLdouble m_latinc = 6.0;
    GLdouble m_longinc = 2.5;
-   std::set<GLuint> m_lists;
+   std::set<GLuint> m_displayLists;
 };
 
 GLTestWindow::WndClass GLTestWindow::m_wndClass;
+
+
+std::vector<std::function<void()>> displayLists{
+   [] {
+      QuadricPtr quadric(gluNewQuadric());
+      glColor4d(1, 0, 0, 1);
+      gluQuadricDrawStyle(quadric.get(), GLU_FILL);
+      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+      gluCylinder(quadric.get(), 0.3, 0.1, 0.6, 24, 1);
+   },
+   [] {
+      QuadricPtr quadric(gluNewQuadric());
+      glColor4d(0, 1, 0, 0.7);
+      gluQuadricDrawStyle(quadric.get(), GLU_FILL);
+      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+      glPushMatrix();
+      glRotated(90.0, 1, 0, 0.7);
+      glTranslated(1, 0, 0);
+      gluCylinder(quadric.get(), 0.3, 0.3, 0.6, 24, 1);
+      glPopMatrix();
+   },
+   [] {
+      QuadricPtr quadric(gluNewQuadric());
+      glColor4d(0, 0, 1, 0.5);
+      gluQuadricDrawStyle(quadric.get(), GLU_LINE);
+      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+      gluSphere(quadric.get(), 1.5, 32, 32);
+   }
+};
 
 } // namespace
 
 int main()
 {
-   GLTestWindow windows[3];
-   auto t0 = GetTickCount64();
+   GLTestWindow windows[] = {
+      {displayLists[0]},
+      {displayLists[1]},
+      {displayLists[0], displayLists[1]},
+      {displayLists[2]},
+      {displayLists[0], displayLists[2]},
+      {displayLists[1], displayLists[2]},
+      {displayLists[0], displayLists[1], displayLists[2]},
+      displayLists,
+      displayLists,
+      displayLists,
+   };
 
+   auto t0 = GetTickCount64();
    for (;;)
    {
       auto t1 = GetTickCount64();
