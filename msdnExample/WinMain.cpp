@@ -2,7 +2,8 @@
 
 #include <functional>
 #include <iostream>
-#include <set>
+#include <map>
+#include <memory>
 #include <string>
 #include <typeinfo>
 #include <type_traits>
@@ -74,18 +75,50 @@ void polarView(GLdouble radius, GLdouble twist, GLdouble latitude, GLdouble long
    glRotated(longitude, 0.0, 0.0, 1.0);
 }
 
+class IGLObject
+{
+public:
+   GLuint GetID() const { return m_id; }
+
+   virtual size_t GetVersion() const = 0;
+   virtual void Draw() = 0;
+
+   virtual ~IGLObject() {}
+
+private:
+   static GLuint m_idCounter;
+   GLuint m_id = ++m_idCounter;
+};
+GLuint IGLObject::m_idCounter;
+
+class GLDisplayList : public IGLObject
+{
+public:
+
+   explicit GLDisplayList(const std::function<void()>& draw) : m_draw(draw) {}
+
+   size_t GetVersion() const override { return m_version; }
+   void Draw() override { m_draw(); }
+
+private:
+   size_t m_version = 0;
+   std::function<void()> m_draw;
+};
+
+template <typename T, typename U>
+constexpr bool IsCollectionOf = std::is_convertible_v<std::decay_t<decltype(*std::begin(std::declval<T>()))>, U>;
+
 class GLTestWindow
 {
 public:
 
    GLTestWindow(const GLTestWindow&) = delete;
 
-   GLTestWindow(std::initializer_list<std::function<void()>> initializerLists = {})
-      : GLTestWindow(initializerLists, {}) { }
+   GLTestWindow(std::initializer_list<std::shared_ptr<IGLObject>> glObjects = {}) : GLTestWindow(glObjects, {}) { }
 
-   template <typename DisplayLists>
-   GLTestWindow(const DisplayLists& displayLists,
-      std::enable_if_t<std::is_same_v<std::function<void()>, typename DisplayLists::value_type>, int> = {})
+   template <typename GLObjectRange>
+   GLTestWindow(const GLObjectRange& glObjects,
+      std::enable_if_t<IsCollectionOf<GLObjectRange, std::shared_ptr<IGLObject>>, int> = {})
    {
       CreateWindow(
          m_wndClass.lpszClassName,
@@ -106,11 +139,9 @@ public:
          m_hrc = wglCreateContext(m_hdc);
          wglMakeCurrent(m_hdc, m_hrc);
 
-         GLuint displayListID = 0;
-         for (auto&& displayList : displayLists)
-         {
-            SetDisplayList(++displayListID, displayList);
-         }
+         for (auto&& glObject : glObjects)
+            AddGLObject(glObject);
+
          ShowWindow(m_hwnd, SW_SHOW);
          UpdateWindow(m_hwnd);
       }
@@ -118,12 +149,12 @@ public:
 
    explicit operator bool() const { return m_hwnd; };
 
-   void SetDisplayList(GLuint id, const std::function<void()>& createList)
+   void AddGLObject(const std::shared_ptr<IGLObject>& glObject)
    {
       wglMakeCurrent(m_hdc, m_hrc);
-      GLList list(id, GL_COMPILE);
-      createList();
-      m_displayLists.insert(id);
+      GLList list(glObject->GetID(), GL_COMPILE);
+      glObject->Draw();
+      m_glObjects[glObject->GetID()] = {glObject->GetVersion(), glObject};
    }
 
    GLvoid Draw(GLdouble dt)
@@ -140,9 +171,23 @@ public:
       glClearColor(0.1f, 0.1f, 0.3f, 1);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-      for (const GLuint displayList : m_displayLists)
-         glCallList(displayList);
-
+      for (auto&& [id, pair] : m_glObjects)
+      {
+         if (const auto& glObject = pair.second.lock())
+         {
+            if (pair.first != glObject->GetVersion())
+            {
+               GLList list(glObject->GetID(), GL_COMPILE);
+               glObject->Draw();
+               pair = {glObject->GetVersion(), glObject};
+            }
+            glCallList(id);
+         }
+         else
+         {
+            m_glObjects.erase(id);
+         }
+      }
       glPopMatrix();
       SwapBuffers(m_hdc);
    }
@@ -272,55 +317,55 @@ private:
    GLdouble m_longitude = 0.0;
    GLdouble m_latinc = 6.0;
    GLdouble m_longinc = 2.5;
-   std::set<GLuint> m_displayLists;
+   std::map<GLuint, std::pair<size_t, std::weak_ptr<IGLObject>>> m_glObjects;
 };
 
 GLTestWindow::WndClass GLTestWindow::m_wndClass;
 
 
-std::vector<std::function<void()>> displayLists{
-   [] {
-      QuadricPtr quadric(gluNewQuadric());
-      glColor4d(1, 0, 0, 1);
-      gluQuadricDrawStyle(quadric.get(), GLU_FILL);
-      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
-      gluCylinder(quadric.get(), 0.3, 0.1, 0.6, 24, 1);
-   },
-   [] {
-      QuadricPtr quadric(gluNewQuadric());
-      glColor4d(0, 1, 0, 0.7);
-      gluQuadricDrawStyle(quadric.get(), GLU_FILL);
-      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
-      glPushMatrix();
-      glRotated(90.0, 1, 0, 0.7);
-      glTranslated(1, 0, 0);
-      gluCylinder(quadric.get(), 0.3, 0.3, 0.6, 24, 1);
-      glPopMatrix();
-   },
-   [] {
-      QuadricPtr quadric(gluNewQuadric());
-      glColor4d(0, 0, 1, 0.5);
-      gluQuadricDrawStyle(quadric.get(), GLU_LINE);
-      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
-      gluSphere(quadric.get(), 1.5, 32, 32);
-   }
-};
-
 } // namespace
 
 int main()
 {
+   std::shared_ptr<IGLObject> glObjects[]{
+      std::make_shared<GLDisplayList>([] {
+         QuadricPtr quadric(gluNewQuadric());
+         glColor4d(1, 0, 0, 1);
+         gluQuadricDrawStyle(quadric.get(), GLU_FILL);
+         gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+         gluCylinder(quadric.get(), 0.3, 0.1, 0.6, 24, 1);
+      }),
+      std::make_shared<GLDisplayList>([] {
+         QuadricPtr quadric(gluNewQuadric());
+         glColor4d(0, 1, 0, 0.7);
+         gluQuadricDrawStyle(quadric.get(), GLU_FILL);
+         gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+         glPushMatrix();
+         glRotated(90.0, 1, 0, 0.7);
+         glTranslated(1, 0, 0);
+         gluCylinder(quadric.get(), 0.3, 0.3, 0.6, 24, 1);
+         glPopMatrix();
+      }),
+      std::make_shared<GLDisplayList>([] {
+         QuadricPtr quadric(gluNewQuadric());
+         glColor4d(0, 0, 1, 0.5);
+         gluQuadricDrawStyle(quadric.get(), GLU_LINE);
+         gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+         gluSphere(quadric.get(), 1.5, 32, 32);
+      })
+   };
+
    GLTestWindow windows[] = {
-      {displayLists[0]},
-      {displayLists[1]},
-      {displayLists[0], displayLists[1]},
-      {displayLists[2]},
-      {displayLists[0], displayLists[2]},
-      {displayLists[1], displayLists[2]},
-      {displayLists[0], displayLists[1], displayLists[2]},
-      displayLists,
-      displayLists,
-      displayLists,
+      {glObjects[0]},
+      {glObjects[1]},
+      {glObjects[0], glObjects[1]},
+      {glObjects[2]},
+      {glObjects[0], glObjects[2]},
+      {glObjects[1], glObjects[2]},
+      {glObjects[0], glObjects[1], glObjects[2]},
+      glObjects,
+      glObjects,
+      glObjects,
    };
 
    auto t0 = GetTickCount64();
