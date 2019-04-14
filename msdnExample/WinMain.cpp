@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include <algorithm>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -90,6 +91,22 @@ constexpr bool IsCollectionOf = std::is_convertible_v<std::decay_t<decltype(*std
 constexpr double floorLevel = 0;
 constexpr double topLevel = 2.5;
 
+using byte = unsigned char;
+std::vector<byte> loadTexture(const std::string& fname)
+{
+   std::ifstream input(fname, std::ios::binary);
+   std::vector<byte> data;
+
+   std::transform(
+      std::next(std::istreambuf_iterator<char>(input), 54),
+      std::istreambuf_iterator<char>(),
+      std::back_inserter(data),
+      [](char b) { return byte(b); });
+   return data;
+}
+
+std::vector<byte> texture = loadTexture("Resources/tiles2.bmp");
+
 class GLTestWindow
 {
 public:
@@ -120,6 +137,13 @@ public:
          bSetupPixelFormat(m_hdc);
          m_hrc = wglCreateContext(m_hdc);
          wglMakeCurrent(m_hdc, m_hrc);
+
+         glEnable(GL_TEXTURE_2D);
+         glBindTexture(GL_TEXTURE_2D, 1);
+         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, texture.data());
+         glBindTexture(GL_TEXTURE_2D, 0);
 
          RECT rect {};
          GetClientRect(m_hwnd, &rect);
@@ -331,7 +355,7 @@ private:
    HWND m_hwnd = nullptr;
    HDC   m_hdc = nullptr;
    HGLRC m_hrc = nullptr;
-   double m_viewDistance = 5;
+   double m_viewDistance = 4;
    double m_viewLevel = (floorLevel * 75 + topLevel * 0.25);
    double m_latitude = 10.0;
    double m_longitude = -20.0;
@@ -428,11 +452,13 @@ private:
    };
 };
 
-
 } // namespace
 
 int main()
 {
+
+   std::cout << "texture size: " << texture.size() << std::endl;
+
    std::shared_ptr<IGLObject> glObjects[]{
       std::make_shared<GLDisplayList>([] {
          glBegin(GL_QUAD_STRIP);
@@ -464,16 +490,38 @@ int main()
 
          glEnd();
 
-         glBegin(GL_QUADS);
-         glColor3d(0.2, 0.2, 0.2);
-         glVertex3d(-3, floorLevel, -3);
-         glColor3d(0.2, 0.2, 0.7);
-         glVertex3d(-3, floorLevel, 3);
-         glColor3d(0.7, 0.2, 0.7);
-         glVertex3d(3, floorLevel, 3);
-         glColor3d(0.2, 0.7, 0.7);
-         glVertex3d(3, floorLevel, -3);
-         glEnd();
+         {
+            int m = 8;
+            int n = 8;
+            glColor3d(1, 1, 1);
+            glBindTexture(GL_TEXTURE_2D, 1);
+            glBegin(GL_QUADS);
+            for (int i = 0; i < m; ++i)
+            {
+               double z0 = -3 + 6.0 / m * i;
+               double z1 = z0 + 6.0 / m;
+
+               for (int j = 0; j < n; ++j)
+               {
+
+                  double x0 = -3 + 6.0 / n * j;
+                  double x1 = x0 + 6.0 / n;
+                  const double tileBegin = 0;
+                  const double tileEnd = 0.92;
+
+                  glVertex3d(x0, floorLevel, z0);
+                  glTexCoord2d(tileBegin, tileBegin);
+                  glVertex3d(x0, floorLevel, z1);
+                  glTexCoord2d(tileBegin, tileEnd);
+                  glVertex3d(x1, floorLevel, z1);
+                  glTexCoord2d(tileEnd, tileEnd);
+                  glVertex3d(x1, floorLevel, z0);
+                  glTexCoord2d(tileEnd, tileBegin);
+               }
+            }
+            glEnd();
+            glBindTexture(GL_TEXTURE_2D, 0);
+         }
 
       }),
    };
@@ -532,7 +580,7 @@ int main()
       }
       {
          QuadricPtr quadric(gluNewQuadric());
-         glColor4d(0, 0, 1, 0.3);
+         glColor4d(0, 0, 1, 0.4);
          gluQuadricDrawStyle(quadric.get(), GLU_LINE);
          gluQuadricNormals(quadric.get(), GLU_SMOOTH);
          glPushMatrix();
