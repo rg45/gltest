@@ -531,11 +531,11 @@ int main()
          glEnd();
 
          {
-            int m = 8;
-            int n = 8;
-            glColor3d(1, 1, 1);
-            glBindTexture(GL_TEXTURE_2D, 1);
-            glBegin(GL_QUADS);
+            const int m = 8;
+            const int n = 8;
+            const double tileBegin = 0;
+            const double tileEnd = 1;
+
             for (int i = 0; i < m; ++i)
             {
                double z0 = -3 + 6.0 / m * i;
@@ -546,9 +546,18 @@ int main()
 
                   double x0 = -3 + 6.0 / n * j;
                   double x1 = x0 + 6.0 / n;
-                  const double tileBegin = 0;
-                  const double tileEnd = 0.92;
 
+                  glColor3d(1, 1, 1);
+                  if (i == 0 || i == m - 1 || j == 0 || j == n - 1)
+                  {
+                     glBindTexture(GL_TEXTURE_2D, 2);
+                  }
+                  else
+                  {
+                     glBindTexture(GL_TEXTURE_2D, 1);
+                  }
+
+                  glBegin(GL_QUADS);
                   glVertex3d(x0, floorLevel, z0);
                   glTexCoord2d(tileBegin, tileBegin);
                   glVertex3d(x0, floorLevel, z1);
@@ -557,10 +566,10 @@ int main()
                   glTexCoord2d(tileEnd, tileEnd);
                   glVertex3d(x1, floorLevel, z0);
                   glTexCoord2d(tileEnd, tileBegin);
+                  glEnd();
+                  glBindTexture(GL_TEXTURE_2D, 0);
                }
             }
-            glEnd();
-            glBindTexture(GL_TEXTURE_2D, 0);
          }
 
       }),
@@ -641,14 +650,22 @@ int main()
       balls.push_back(std::make_shared<JumpingBall>());
    }
 
-   GLTexture texture(1, "Resources/tiles2.bmp");
-
-   for (auto&& wnd : windows)
    {
-      wnd.AddTexture(texture);
-      for (auto&& ball : balls)
+      GLTexture textures[]{
+         {1, "Resources/tiles2.bmp"},
+         {2, "Resources/tiles3.bmp"}
+      };
+
+      for (auto&& wnd : windows)
       {
-         wnd.AddGLObject(ball);
+         for (auto&& texture : textures)
+         {
+            wnd.AddTexture(texture);
+         }
+         for (auto&& ball : balls)
+         {
+            wnd.AddGLObject(ball);
+         }
       }
    }
 
