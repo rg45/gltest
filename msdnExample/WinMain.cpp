@@ -92,20 +92,56 @@ constexpr double floorLevel = 0;
 constexpr double topLevel = 2.5;
 
 using byte = unsigned char;
-std::vector<byte> loadTexture(const std::string& fname)
-{
-   std::ifstream input(fname, std::ios::binary);
-   std::vector<byte> data;
 
-   std::transform(
-      std::next(std::istreambuf_iterator<char>(input), 54),
-      std::istreambuf_iterator<char>(),
-      std::back_inserter(data),
-      [](char b) { return byte(b); });
-   return data;
+template <typename T>
+void extract(std::istreambuf_iterator<char>& it, T& t)
+{
+   for (size_t i = 0; i < sizeof(T); ++i)
+      reinterpret_cast<char*>(&t)[i] = *it++;
 }
 
-std::vector<byte> texture = loadTexture("Resources/tiles2.bmp");
+class GLTexture
+{
+public:
+
+      GLTexture(GLuint id, const std::string& fname)
+         : m_id(id)
+      {
+         std::ifstream input(fname, std::ios::binary);
+         std::istreambuf_iterator<char> it(input);
+
+         extract(it, m_fileHeader);
+         if (m_fileHeader.bfType != 0x4D42)
+            return;
+
+         extract(it, m_infoHeader);
+         if (m_infoHeader.biSize != sizeof(m_infoHeader))
+            return;
+
+         m_data.reserve(m_fileHeader.bfSize - m_fileHeader.bfOffBits);
+
+         std::copy(it, std::istreambuf_iterator<char>(), std::back_inserter(m_data));
+      }
+
+      GLuint GetID() const { return m_id; }
+      LONG GetWidth() const { return m_infoHeader.biWidth; }
+      LONG GetHeight() const { return (std::abs)(m_infoHeader.biHeight); }
+      bool IsTopDown() const { return m_infoHeader.biHeight < 0; }
+      WORD GetBitsPerPixel() const { return m_infoHeader.biBitCount; }
+      DWORD GetFormat() const { return m_infoHeader.biCompression; }
+
+      bool empty() const { return m_data.empty(); }
+      size_t size() const { return m_data.size(); }
+      const byte* begin() const { return reinterpret_cast<const byte*>(m_data.data()); }
+      const byte* end() const { return begin() + size(); }
+      explicit operator bool() const { return !empty(); }
+
+private:
+   GLuint m_id = 0;
+   BITMAPFILEHEADER m_fileHeader{};
+   BITMAPINFOHEADER m_infoHeader{};
+   std::vector<char> m_data;
+};
 
 class GLTestWindow
 {
@@ -137,13 +173,6 @@ public:
          bSetupPixelFormat(m_hdc);
          m_hrc = wglCreateContext(m_hdc);
          wglMakeCurrent(m_hdc, m_hrc);
-
-         glEnable(GL_TEXTURE_2D);
-         glBindTexture(GL_TEXTURE_2D, 1);
-         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, texture.data());
-         glBindTexture(GL_TEXTURE_2D, 0);
 
          RECT rect {};
          GetClientRect(m_hwnd, &rect);
@@ -210,6 +239,20 @@ public:
          }
       }
       SwapBuffers(m_hdc);
+   }
+
+   void AddTexture(const GLTexture& texture)
+   {
+      wglMakeCurrent(m_hdc, m_hrc);
+
+      glEnable(GL_TEXTURE_2D);
+      glBindTexture(GL_TEXTURE_2D, texture.GetID());
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texture.GetWidth(),
+         texture.GetHeight(), 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, texture.begin());
+
+      glBindTexture(GL_TEXTURE_2D, 0);
    }
 
    ~GLTestWindow()
@@ -456,9 +499,6 @@ private:
 
 int main()
 {
-
-   std::cout << "texture size: " << texture.size() << std::endl;
-
    std::shared_ptr<IGLObject> glObjects[]{
       std::make_shared<GLDisplayList>([] {
          glBegin(GL_QUAD_STRIP);
@@ -527,6 +567,7 @@ int main()
    };
 
    GLTestWindow windows[] = {
+      glObjects,
       glObjects,
    };
 
@@ -600,9 +641,16 @@ int main()
       balls.push_back(std::make_shared<JumpingBall>());
    }
 
+   GLTexture texture(1, "Resources/tiles2.bmp");
+
    for (auto&& wnd : windows)
+   {
+      wnd.AddTexture(texture);
       for (auto&& ball : balls)
+      {
          wnd.AddGLObject(ball);
+      }
+   }
 
    auto t0 = GetTickCount64();
    for (;;)
