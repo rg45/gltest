@@ -59,12 +59,12 @@ struct GLList
    ~GLList() { glEndList(); }
 };
 
-GLvoid resize(GLsizei width, GLsizei height)
+GLvoid setProjection(GLsizei width, GLsizei height)
 {
    glViewport(0, 0, width, height);
    glMatrixMode(GL_PROJECTION);
    glLoadIdentity();
-   gluPerspective(45.0, GLfloat(width) / height, 1.0, 100.0);
+   gluPerspective(45.0, GLfloat(width) / height, 1.0, 25.0);
    glMatrixMode(GL_MODELVIEW);
 }
 
@@ -84,22 +84,11 @@ private:
 };
 GLuint IGLObject::m_idCounter;
 
-class GLDisplayList : public IGLObject
-{
-public:
-
-   explicit GLDisplayList(const std::function<void()>& draw) : m_draw(draw) {}
-
-   size_t GetVersion() const override { return m_version; }
-   void Draw() override { m_draw(); }
-
-private:
-   size_t m_version = 0;
-   std::function<void()> m_draw;
-};
-
 template <typename T, typename U>
 constexpr bool IsCollectionOf = std::is_convertible_v<std::decay_t<decltype(*std::begin(std::declval<T>()))>, U>;
+
+constexpr double floorLevel = 0;
+constexpr double topLevel = 2.5;
 
 class GLTestWindow
 {
@@ -131,10 +120,10 @@ public:
          bSetupPixelFormat(m_hdc);
          m_hrc = wglCreateContext(m_hdc);
          wglMakeCurrent(m_hdc, m_hrc);
-         glEnable(GL_BLEND);
-         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-         glEnable(GL_DEPTH_TEST);
-         glClearColor(0.1f, 0.1f, 0.3f, 1);
+
+         RECT rect {};
+         GetClientRect(m_hwnd, &rect);
+         setProjection(rect.right, rect.bottom);
 
          for (auto&& glObject : glObjects)
             AddGLObject(glObject);
@@ -159,15 +148,25 @@ public:
       //m_latitude = fmod(m_latitude + m_latinc * dt, 360);
       //m_latitude = 30;
       m_longitude = fmod(m_longitude + m_longinc * dt, 360);
-      m_longinc *= std::exp(-dt);
+      m_longinc *= std::exp(-dt / 2);
+      if (-5 < m_longinc && m_longinc < 5)
+         m_longinc = 0;
 
       wglMakeCurrent(m_hdc, m_hrc);
+
+      glEnable(GL_DEPTH_TEST);
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      glPolygonMode(GL_BACK, GL_LINE);
+
+      glClearColor(0.1f, 0.1f, 0.3f, 1);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
       glMatrixMode(GL_MODELVIEW);
       glLoadIdentity();
-      glTranslated(0.0, 0.0, -m_radius);
+      glTranslated(0.0, 0.0, -m_viewDistance);
       glRotated(m_latitude, 1.0, 0.0, 0.0);
       glRotated(m_longitude, 0.0, 1.0, 0.0);
+      glTranslated(0.0, -m_viewLevel, 0.0);
 
       for (auto&& [id, pair] : m_glObjects)
       {
@@ -245,7 +244,7 @@ private:
          std::cout << std::hex << ", " << uMsg;
       }
       GLTestWindow* const wnd = reinterpret_cast<GLTestWindow*>(GetWindowLongPtr(hWnd, GWLP_USERDATA));
-      const auto res = wnd->WndProc(uMsg, wParam, lParam);
+      const auto res = wnd->WindowProc(hWnd, uMsg, wParam, lParam);
 
       if (uMsg == WM_DESTROY)
       {
@@ -255,12 +254,12 @@ private:
       return res;
    }
 
-   LRESULT WndProc(UINT uMsg, WPARAM wParam, LPARAM lParam)
+   LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
    {
       switch (uMsg)
       {
       case WM_CLOSE:
-         DestroyWindow(m_hwnd);
+         DestroyWindow(hwnd);
          break;
 
       case WM_DESTROY:
@@ -268,15 +267,15 @@ private:
             wglDeleteContext(m_hrc);
 
          if (m_hdc)
-            ReleaseDC(m_hwnd, m_hdc);
+            ReleaseDC(hwnd, m_hdc);
 
          break;
 
       case WM_SIZE:
          {
             RECT rect{};
-            GetClientRect(m_hwnd, &rect);
-            resize(rect.right, rect.bottom);
+            GetClientRect(hwnd, &rect);
+            setProjection(rect.right, rect.bottom);
          }
          break;
 
@@ -287,7 +286,8 @@ private:
             const int dragY = short(HIWORD(lParam));
             if (wParam & MK_LBUTTON)
             {
-               m_longinc = (std::min)(500.0, (std::max)(-500.0, double(dragX - m_dragX) * 10));
+               m_longinc = 0;
+               m_longitude = std::fmod(m_longitude + double(dragX - m_dragX) / 5, 360);
                m_latitude = (std::min)(80.0, (std::max)(-80.0, m_latitude + double(dragY - m_dragY) / 5));
             }
             m_dragX = dragX;
@@ -296,20 +296,20 @@ private:
          break;
 
       case WM_MOUSEWHEEL:
-         m_radius = (std::min)(30.0, (std::max)(3.0, m_radius - GET_WHEEL_DELTA_WPARAM(wParam) / double(WHEEL_DELTA)));
+         m_viewDistance = (std::min)(20.0, (std::max)(3.0, m_viewDistance - GET_WHEEL_DELTA_WPARAM(wParam) / double(WHEEL_DELTA)));
          break;
 
       case WM_KEYDOWN:
          switch (wParam)
          {
          case VK_ESCAPE:
-            DestroyWindow(m_hwnd);
+            DestroyWindow(hwnd);
             break;
          case VK_LEFT:
-            m_longinc += 5.0;
+            m_longinc -= 10.0;
             break;
          case VK_RIGHT:
-            m_longinc -= 5.0;
+            m_longinc += 10.0;
             break;
          case VK_UP:
             m_latitude = (std::min)(80.0, (std::max)(-80.0, m_latitude - 1));
@@ -321,7 +321,7 @@ private:
          break;
 
       default:
-         return DefWindowProc(m_hwnd, uMsg, wParam, lParam);
+         return DefWindowProc(hwnd, uMsg, wParam, lParam);
       }
       return true;
    }
@@ -331,11 +331,12 @@ private:
    HWND m_hwnd = nullptr;
    HDC   m_hdc = nullptr;
    HGLRC m_hrc = nullptr;
-   GLdouble m_radius = 4.5;
-   GLdouble m_latitude = 0.0;
-   GLdouble m_longitude = 0.0;
-   GLdouble m_latinc = 6.0;
-   GLdouble m_longinc = 2.5;
+   double m_viewDistance = 5;
+   double m_viewLevel = (floorLevel * 75 + topLevel * 0.25);
+   double m_latitude = 10.0;
+   double m_longitude = -20.0;
+   double m_latinc = 6.0;
+   double m_longinc = 2.5;
    std::map<GLuint, std::pair<size_t, std::weak_ptr<IGLObject>>> m_glObjects;
    int m_dragX = 0;
    int m_dragY = 0;
@@ -345,57 +346,86 @@ GLTestWindow::WndClass GLTestWindow::m_wndClass;
 
 double rand() { return std::rand() / double(RAND_MAX);  }
 
-class JumpingBall : public IGLObject
+class GLDisplayList : public IGLObject
 {
 public:
 
+   GLDisplayList() = default;
+   explicit GLDisplayList(const std::function<void()>& draw) : m_draw(draw) {}
+
    size_t GetVersion() const override { return m_version; }
+   void Draw() override { m_draw(); }
 
-   void Draw() override
+   void Reset(const std::function<void()>& draw)
    {
-      QuadricPtr quadric(gluNewQuadric());
-      glColor4d(m_red, m_green, m_blue, 1);
-      gluQuadricDrawStyle(quadric.get(), GLU_LINE);
-      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
-      glPushMatrix();
-      glTranslated(m_x, m_y, m_z);
-      glRotated(m_rotation, 1, 1, 1);
-      gluSphere(quadric.get(), m_radius, 16, 16);
-      glPopMatrix();
-   }
-
-   void Calc(double dt)
-   {
-      m_t = std::fmod(m_t + dt, m_vy/5);
-
-      m_y = -1.5 + m_vy * m_t - 10 * m_t * m_t / 2;
-      m_rotation = std::fmod(m_rotation + 123 * dt, 360);
-
-      m_x += m_vx * dt;
-      if (m_x < -3 && m_vx < 0 || m_x > 3 && m_vx > 0)
-         m_vx = -m_vx;
-
-      m_z += m_vz * dt;
-      if (m_z < -3 && m_vz < 0 || m_z > 3 && m_vz > 0)
-         m_vz = -m_vz;
-
+      m_draw = draw;
       ++m_version;
    }
 
 private:
    size_t m_version = 0;
+   std::function<void()> m_draw = []{};
+};
+
+class JumpingBall : public GLDisplayList
+{
+public:
+
+   JumpingBall() = default;
+   JumpingBall(double radius, const std::function<void()>& model) : m_radius(radius), m_model(model) {}
+
+   void Calc(double dt)
+   {
+      m_t = std::fmod(m_t + dt, m_vy/5);
+
+      m_y = floorLevel + m_radius + m_vy * m_t - 10 * m_t * m_t / 2;
+      m_rotation = std::fmod(m_rotation + 123 * dt, 360);
+
+      m_x += m_vx * dt;
+      if (m_x < -3 + m_radius && m_vx < 0 || m_x > 3 - m_radius && m_vx > 0)
+         m_vx = -m_vx;
+
+      m_z += m_vz * dt;
+      if (m_z < -3 + m_radius && m_vz < 0 || m_z > 3 - m_radius && m_vz > 0)
+         m_vz = -m_vz;
+
+      Reset(createDisplayList());
+   }
+
+private:
+
+   std::function<void()> createDisplayList() const
+   {
+      return [this] {
+         glPushMatrix();
+         glTranslated(m_x, m_y, m_z);
+         glRotated(m_rotation, 1, 1, 1);
+
+         m_model();
+
+         glPopMatrix();
+      };
+   }
+
+private:
+   size_t m_version = 0;
+   double m_radius = 0.105;
    double m_x = rand() * 4 - 2;
-   double m_y = -1;
+   double m_y = 0;
    double m_z = rand() * 4 - 2;
-   double m_red = rand();
-   double m_green = rand();
-   double m_blue = rand(); 
-   double m_rotation;
+   double m_rotation = 0;
    double m_vx = rand() * 2 - 1;
-   double m_vy = rand() * 4 + 4;
+   double m_vy = rand() * 3 + 3;
    double m_vz = rand() * 2 - 1;
    double m_t = rand() * m_vy/5;
-   double m_radius = 0.105;
+
+   std::function<void()> m_model = [this, red = rand(), green = rand(), blue = rand()]{
+      QuadricPtr quadric(gluNewQuadric());
+      glColor4d(red, green, blue, 1);
+      gluQuadricDrawStyle(quadric.get(), GLU_LINE);
+      gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+      gluSphere(quadric.get(), m_radius, 16, 16);
+   };
 };
 
 
@@ -405,56 +435,126 @@ int main()
 {
    std::shared_ptr<IGLObject> glObjects[]{
       std::make_shared<GLDisplayList>([] {
+         glBegin(GL_QUAD_STRIP);
+         
+         glColor3d(0.2, 0.2, 0.2);
+         glVertex3d(-3, floorLevel, -3);
+         glColor3d(0.2, 0.7, 0.2);
+         glVertex3d(-3, topLevel, -3);
+
+         glColor3d(0.2, 0.2, 0.7);
+         glVertex3d(-3, floorLevel, 3);
+         glColor3d(0.2, 0.7, 0.7);
+         glVertex3d(-3, topLevel, 3);
+
+         glColor3d(0.7, 0.2, 0.7);
+         glVertex3d(3, floorLevel, 3);
+         glColor3d(0.7, 0.7, 0.7);
+         glVertex3d(3, topLevel, 3);
+
+         glColor3d(0.2, 0.7, 0.7);
+         glVertex3d(3, floorLevel, -3);
+         glColor3d(0.2, 0.2, 0.7);
+         glVertex3d(3, topLevel, -3);
+
+         glColor3d(0.2, 0.2, 0.2);
+         glVertex3d(-3, floorLevel, -3);
+         glColor3d(0.2, 0.7, 0.2);
+         glVertex3d(-3, topLevel, -3);
+
+         glEnd();
+
+         glBegin(GL_QUADS);
+         glColor3d(0.2, 0.2, 0.2);
+         glVertex3d(-3, floorLevel, -3);
+         glColor3d(0.2, 0.2, 0.7);
+         glVertex3d(-3, floorLevel, 3);
+         glColor3d(0.7, 0.2, 0.7);
+         glVertex3d(3, floorLevel, 3);
+         glColor3d(0.2, 0.7, 0.7);
+         glVertex3d(3, floorLevel, -3);
+         glEnd();
+
+      }),
+   };
+
+   GLTestWindow windows[] = {
+      glObjects,
+   };
+
+   std::vector<std::shared_ptr<JumpingBall>> balls;
+
+   const auto jumpingGlobe = [] {
+      {
          QuadricPtr quadric(gluNewQuadric());
          glColor4d(0, 1, 0, 1);
          gluQuadricDrawStyle(quadric.get(), GLU_FILL);
          gluQuadricNormals(quadric.get(), GLU_SMOOTH);
          glPushMatrix();
          glRotated(90.0, 1, 0, 0.7);
-         glTranslated(1, 0, 0);
-         gluCylinder(quadric.get(), 0.3, 0.3, 0.6, 24, 1);
+         glTranslated(0.3, 0, 0);
+         gluCylinder(quadric.get(), 0.1, 0.1, 0.2, 24, 1);
          glPopMatrix();
-      }),
-      std::make_shared<GLDisplayList>([] {
+      }
+      {
          QuadricPtr quadric(gluNewQuadric());
          glColor4d(1, 0, 0, 1);
          gluQuadricDrawStyle(quadric.get(), GLU_FILL);
          gluQuadricNormals(quadric.get(), GLU_SMOOTH);
-         gluCylinder(quadric.get(), 0.3, 0.1, 0.6, 24, 1);
-      }),
-      std::make_shared<GLDisplayList>([] {
+         glPushMatrix();
+         glTranslated(0, 0, 0.20);
+         gluCylinder(quadric.get(), 0.1, 0.04, 0.2, 24, 1);
+         glPopMatrix();
+      }
+      {
          QuadricPtr quadric(gluNewQuadric());
-         glColor4d(0, 0, 1, 1);
+         glColor3d(1, 1, 0);
+         gluQuadricDrawStyle(quadric.get(), GLU_LINE);
+         gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+         glPushMatrix();
+         glTranslated(0, 0, -0.20);
+         gluSphere(quadric.get(), 0.1, 16, 16);
+         glPopMatrix();
+      }
+      {
+         QuadricPtr quadric(gluNewQuadric());
+         gluQuadricDrawStyle(quadric.get(), GLU_LINE);
+         gluQuadricNormals(quadric.get(), GLU_SMOOTH);
+         glPushMatrix();
+         glTranslated(-0.3, 0, 0);
+         glColor3d(0.5, 0, 0.5);
+         gluSphere(quadric.get(), 0.07, 16, 16);
+         glColor3d(1, 0, 0);
+         gluDisk(quadric.get(), 0.07, 0.15, 32, 1);
+         glRotated(90, 1, 0, 0);
+         gluDisk(quadric.get(), 0.07, 0.15, 32, 1);
+         glPopMatrix();
+      }
+      {
+         QuadricPtr quadric(gluNewQuadric());
+         glColor4d(0, 0, 1, 0.3);
          gluQuadricDrawStyle(quadric.get(), GLU_LINE);
          gluQuadricNormals(quadric.get(), GLU_SMOOTH);
          glPushMatrix();
          glRotated(90.0, 1, 0, 0);
-         gluSphere(quadric.get(), 1.5, 32, 32);
+         gluSphere(quadric.get(), 0.5, 32, 32);
          glPopMatrix();
-      }),
+      }
    };
 
-   GLTestWindow windows[] = {
-//       {glObjects[0]},
-//       {glObjects[1]},
-//       {glObjects[0], glObjects[1]},
-//       {glObjects[2]},
-//       {glObjects[0], glObjects[2]},
-//       {glObjects[1], glObjects[2]},
-//       {glObjects[0], glObjects[1], glObjects[2]},
-//       glObjects,
-//       glObjects,
-      glObjects,
-   };
-
-   std::vector<std::shared_ptr<JumpingBall>> balls;
+   for (size_t i = 0; i < 3; ++i)
+   {
+      balls.push_back(std::make_shared<JumpingBall>(0.5, jumpingGlobe));
+   }
 
    for (size_t i = 0; i < 20; ++i)
    {
       balls.push_back(std::make_shared<JumpingBall>());
-      for (auto&& wnd : windows)
-         wnd.AddGLObject(balls.back());
    }
+
+   for (auto&& wnd : windows)
+      for (auto&& ball : balls)
+         wnd.AddGLObject(ball);
 
    auto t0 = GetTickCount64();
    for (;;)
