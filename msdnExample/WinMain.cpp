@@ -34,7 +34,7 @@ BOOL bSetupPixelFormat(HDC hdc)
    ppfd->iPixelType = PFD_TYPE_RGBA;
    ppfd->cColorBits = 24;
    ppfd->cAlphaBits = 8;
-   ppfd->cDepthBits = 16;
+   ppfd->cDepthBits = 32;
    ppfd->cAccumBits = 0;
    ppfd->cStencilBits = 0;
 
@@ -52,7 +52,7 @@ BOOL bSetupPixelFormat(HDC hdc)
    return TRUE;
 }
 
-struct QuadricDeleter { void operator()(GLUquadricObj* obj) { /*gluDeleteQuadric(obj)*/; } };
+struct QuadricDeleter { void operator()(GLUquadricObj* obj) { gluDeleteQuadric(obj); } };
 using QuadricPtr = std::unique_ptr<GLUquadricObj, QuadricDeleter>;
 struct GLList
 {
@@ -272,7 +272,7 @@ private:
          lpszClassName = typeid(*this).name();
          hInstance = GetModuleHandle(nullptr);
 
-         style = 0;
+         style = CS_DBLCLKS | CS_HREDRAW;
          lpfnWndProc = WndProcInit_;
          cbClsExtra = 0;
          cbWndExtra = 0;
@@ -364,6 +364,14 @@ private:
 
       case WM_MOUSEWHEEL:
          m_viewDistance = (std::min)(20.0, (std::max)(3.0, m_viewDistance - GET_WHEEL_DELTA_WPARAM(wParam) / double(WHEEL_DELTA)));
+         break;
+
+      case WM_LBUTTONDBLCLK:
+         {
+            WINDOWPLACEMENT wp {};
+            GetWindowPlacement(hwnd, &wp);
+            ShowWindow(hwnd, wp.showCmd == SW_MAXIMIZE ? SW_SHOWNORMAL : SW_SHOWMAXIMIZED);
+         }
          break;
 
       case WM_KEYDOWN:
@@ -576,7 +584,6 @@ int main()
    };
 
    GLTestWindow windows[] = {
-      glObjects,
       glObjects,
    };
 
